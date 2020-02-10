@@ -38,27 +38,32 @@ getcritical() {
 }
 export -f getcritical
 
+gettotal() {
+
+    VAR=$(echo $1 | cut -d ':' -f3 | cut -d ';' -f3 | cut -d ' ' -f1)
+    echo $VAR
+}
+export -f gettotal
+
 treatdata () {
 
     NAME=$(getname "$1")
     USED=$(getused "$1")
     WARNING=$(getwarning "$1")
     CRITICAL=$(getcritical "$1")
+    TOTAL=$(gettotal "$1")
 
-    MESSAGE=""
+    VALUE=$(echo "scale=3; ($USED/$TOTAL)*100"|bc -l)
+
     if [[ $USED -ge $CRITICAL ]];then
-        MESSAGE="CRITICAL - Container $NAME is CRITICAL: 'used'= $USED , and critical threshold is $CRITICAL"
-        GLOBALCODE=2
-    elif [[ $USED -ge $WARNING ]]; then
-        MESSAGE="WARNING - Container $NAME is WARNING: 'used'= $USED , and warning threshold is $WARNING"
-        if [[ $GLOBALCODE -eq 0 ]];then
-            GLOBALCODE=1
-        fi
+        MESSAGE="CRITICAL - Container #$NAME is CRITICAL ($VALUE% used)#: #\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
+    elif [[ $USED -ge $WARNING ]];then
+        MESSAGE="WARNING - Container #$NAME is WARNING ($VALUE% used)#: #\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
     else 
-        MESSAGE="Container $NAME OK: 'used'= $USED , 'warning'= $WARNING , 'critical'= $CRITICAL"
+        MESSAGE="Container $NAME OK: ###\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
     fi
 
-    echo "$MESSAGE;"
+    echo "$MESSAGE"
 }
 export -f treatdata
 
@@ -71,30 +76,40 @@ HOSTNAME=$1
 URLPATH=$2
 PROTO=$3
 PORT=$4
-CONTAINER=$5
+POD=$5
 WARNING=$6
 CRITICAL=$7
 
 GLOBALCODE=0
 
-TPLCOMMAND="/usr/lib/nagios/plugins/centreon-plugins/centreon_plugins.pl --plugin=cloud::prometheus::exporters::cadvisor::plugin --mode=memory --hostname=$HOSTNAME --url-path=$URLPATH --proto=$PROTO --port=$PORT --container=$CONTAINER --warning-usage=$WARNING --critical-usage=$CRITICAL"
+TPLCOMMAND="/usr/lib/nagios/plugins/centreon-plugins/centreon_plugins.pl --plugin=cloud::prometheus::exporters::cadvisor::plugin --mode=memory --hostname=$HOSTNAME --url-path=$URLPATH --proto=$PROTO --port=$PORT --pod=$POD --warning-usage=$WARNING --critical-usage=$CRITICAL"
 
 OUTPUT=$($TPLCOMMAND 2>/dev/null)
-
 GLOBALMESSAGE=$(echo $OUTPUT | sed "s/'used'/\n'used'/g" | awk '{if(NR>1)print}' | xargs -I {} bash -c 'treatdata "$@"' _ {})
 
-ISCRIT=$(echo "$GLOBALMESSAGE" | grep -w "CRITICAL")
-ISWARN=$(echo "$GLOBALMESSAGE" | grep -w "WARNING")
+ISCRIT=$(echo -e "$GLOBALMESSAGE" | grep -w "CRITICAL")
+ISWARN=$(echo -e "$GLOBALMESSAGE" | grep -w "WARNING")
+
+CRITNAMES="CRITICAL -"
+WARNNAMES="WARNING -"
+
+CRITNAMES="$CRITNAMES $(echo -e "$ISCRIT"|xargs -I {} echo "{}" | cut -d"#" -f2 | tr '\n' ' ' )"
+WARNNAMES="$WARNNAMES $(echo -e "$ISWARN"|xargs -I {} echo "{}" | cut -d"#" -f2 | tr '\n' ' ' )"
 
 if [[ "$ISCRIT" != "" ]];then
-    echo -e "CRITICAL - One or more containers are in critical state"
+    echo -n "$CRITNAMES"
     GLOBALCODE=2
+    if [[ "$ISWARN" != "" ]];then
+        echo -n "$WARNNAMES"
+    fi
+    echo -n "| "
 elif [[ "$ISWARN" != "" ]];then
-    echo -e "WARNING - One or more containers are in warning state"
+    echo -n "$WARNNAMES | "
     GLOBALCODE=1
 else
-    echo -e "OK - All containers are ok"
+    echo -n "OK - All containers are ok | "
 fi
 
-echo $GLOBALMESSAGE
+echo "$GLOBALMESSAGE" | xargs -I {} echo "{}" | cut -d "#" -f4 | tr '\n' ' '
+echo -e "\n"
 exit $GLOBALCODE
