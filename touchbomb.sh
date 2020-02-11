@@ -1,12 +1,20 @@
 #!/bin/bash
 
 set -euo pipefail
-IFS="\t\n"
+IFS=$'\n\t'
+
+DIR=$(pwd)
+NAME=$0
+DATEDIR="$DIR/dates"
 
 function finish {
-  /home/alejandro.revilla/traptest.sh
+  $0
 }
 trap finish EXIT
+trap finish INT
+trap finish TERM
 
-touch /home/alejandro.revilla/dates/$(date +"%N")
+test ! -d $DIR/dates && mkdir dates
+
+touch $DATEDIR/$(date +"%N")
 exit
