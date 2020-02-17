@@ -6,7 +6,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-usage="$(basename "$0") [-h] [-r <REGION>] [-n] [-m] [-s] [-e] [-p] [-S] [-d] [-P] -- program to get metrics values for Custom Namespaces in AWS
+usage="$(basename "$0") [-h] [-r] [-n] [-m] [-s] [-e] [-p] [-S] [-d] [-P] -- program to get metrics values for Custom Namespaces in AWS
 
 where:
     -h  show this help text
@@ -52,9 +52,11 @@ while getopts "h:r:n:m:o:s:e:p:S:d:P:w:c:" OPTION; do
        ;;
     P) _PROFILE="$OPTARG"
        ;;
-    w) _WARNING="$OPTARG"
+    w) _WFLAG=true
+       _WARNING="$OPTARG"
        ;;
-    c) _CRITICAL="$OPTARG"
+    c) _CFLAG=true
+       _CRITICAL="$OPTARG"
        ;;
     ?) echo "$usage"
        exit
@@ -74,10 +76,10 @@ fi
 
 for x in $DATA; do
     INT=$(echo "$x/1"|bc)
-    if [[ "$INT" -ge "${_CRITICAL:-90000000000000}" ]];then
+    if [[ ${_CFLAG:-false} && "$INT" -ge "${_CRITICAL:-}" ]];then
         echo -e "CRITICAL - Metric $_METRIC is greater or equal critical threshold ($_CRITICAL) | '$_METRIC'=$INT"
         exit 2
-    elif [[ "$INT" -ge "${_WARNING:-90000000000000}" ]];then
+    elif [[ ${_WFLAG:-false} && "$INT" -ge "${_WARNING:-}" ]];then
         echo -e "WARNING - Metric $_METRIC is greater or equal warning threshold ($_WARNING) | '$_METRIC'=$INT"
         exit 1
     fi
