@@ -17,6 +17,7 @@ usage () {
     -P  indica Protocol (ex: http,https)
     -p  indica port
     -f  indica filtre de pod
+    -e  extra filtre de pod
     -w  indica valor de warning (%)
     -c  indica valor de critical (%)
     -t  fixa la memoria total al valor donat
@@ -28,7 +29,7 @@ if [[ $# -lt 14 ]];then
     usage
 fi
 
-while getopts "h:t:H:u:P:p:f:w:c:" OPTION; do
+while getopts "h:t:H:u:P:p:f:e:w:c:" OPTION; do
   case "$OPTION" in
     h) usage
        ;;
@@ -44,6 +45,8 @@ while getopts "h:t:H:u:P:p:f:w:c:" OPTION; do
        ;;
     f) _POD="$OPTARG"
        ;;
+    e) _EXTRAPOD="$OPTARG"
+       ;;
     w) _WARNING="$OPTARG"
        ;;
     c) _CRITICAL="$OPTARG"
@@ -54,8 +57,6 @@ while getopts "h:t:H:u:P:p:f:w:c:" OPTION; do
 done
 shift "$(($OPTIND -1))"
 
-
-
 getused () {
 
     VAR=$(echo $1 | cut -d '=' -f2 | cut -d 'B' -f1)
@@ -64,8 +65,11 @@ getused () {
 export -f getused
 
 getname() {
-
-    VAR=$(echo $1 | cut -d " " -f3 | cut -d '=' -f1 | sed -e "s/cache_//g" )
+    if [[ "false" != "$2" ]];then
+        VAR=$3
+    else
+        VAR=$(echo $1 | cut -d " " -f3 | cut -d '=' -f1 | sed -e "s/rss_//g" )
+    fi
     echo $VAR
 }
 export -f getname
@@ -105,7 +109,7 @@ export -f gettotal
 
 treatdata () {
 
-    NAME=$(getname "$1")
+    NAME=$(getname "$1" "$5" "$6")
     USED=$(getused "$1")
     WARNING=$(getwarning "$1" "$2" "$3")
     CRITICAL=$(getcritical "$1" "$2" "$4")
@@ -114,11 +118,11 @@ treatdata () {
     VALUE=$(echo "scale=3; ($USED/$TOTAL)*100"|bc -l)
 
     if [[ $USED -ge $CRITICAL ]];then
-        MESSAGE="CRITICAL - Container #$NAME is CRITICAL ($VALUE% used)#: #\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
+        MESSAGE="CRITICAL - Container #$NAME is CRITICAL ($VALUE% working)#: #\'working_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
     elif [[ $USED -ge $WARNING ]];then
-        MESSAGE="WARNING - Container #$NAME is WARNING ($VALUE% used)#: #\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
+        MESSAGE="WARNING - Container #$NAME is WARNING ($VALUE% working)#: #\'working_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
     else 
-        MESSAGE="Container $NAME OK: ###\'used_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
+        MESSAGE="Container $NAME OK: ###\'working_$NAME\'=$USED;$WARNING;$CRITICAL;$TOTAL"
     fi
 
     echo "$MESSAGE"
@@ -126,9 +130,27 @@ treatdata () {
 export -f treatdata
 
 #Inici de funcio principal
+if [[ -z ${_EXTRAPOD:-} ]];then
+    OUTPUT=`/usr/lib/nagios/plugins/centreon-plugins/centreon_plugins.pl --plugin=cloud::prometheus::exporters::cadvisor::plugin --mode=memory --hostname=$_HOSTNAME --url-path=$_URLPATH --proto=$_PROTO --port=$_PORT --pod=$_POD --warning-working=$_WARNING --critical-working=$_CRITICAL 2>/dev/null`
+else
+    set +e
+    OUTPUT=`/usr/lib/nagios/plugins/centreon-plugins/centreon_plugins.pl --plugin=cloud::prometheus::exporters::cadvisor::plugin --mode=memory --hostname=$_HOSTNAME --url-path=$_URLPATH --proto=$_PROTO --port=$_PORT --pod=$_POD --extra-filter=$_EXTRAPOD --warning-working=$_WARNING --critical-working=$_CRITICAL`
+    retval=$?
+    set -e
+    if [[ $retval -ne 0 ]];then
+        echo "$OUTPUT"
+        exit $retval
+    fi
+fi
 
-OUTPUT=`/usr/lib/nagios/plugins/centreon-plugins/centreon_plugins.pl --plugin=cloud::prometheus::exporters::cadvisor::plugin --mode=memory --hostname=$_HOSTNAME --url-path=$_URLPATH --proto=$_PROTO --port=$_PORT --pod=$_POD --warning-usage=$_WARNING --critical-usage=$_CRITICAL 2>/dev/null`
-GLOBALMESSAGE=$(echo $OUTPUT | sed "s/'used'/\n'used'/g" | awk '{if(NR>1)print}' | xargs -I {} bash -c 'treatdata "$@"' _ {} ${_TOTAL:--1} $_WARNING $_CRITICAL)
+
+NOTALONE=$(echo "$OUTPUT" | grep "containers" || true)
+if [[ -z "$NOTALONE" ]];then
+     _ONLYONE=true
+     _ONAME=$(echo $OUTPUT | cut -d " " -f5 | cut -d ']' -f1)
+fi
+
+GLOBALMESSAGE=$(echo $OUTPUT | sed "s/'working'/\n'working'/g" | awk '{if(NR>1)print}' | xargs -I {} bash -c 'treatdata "$@"' _ {} ${_TOTAL:--1} $_WARNING $_CRITICAL ${_ONLYONE:-false} ${_ONAME:-null})
 
 ISCRIT=$(echo -e "$GLOBALMESSAGE" | grep -w "CRITICAL" || true)
 ISWARN=$(echo -e "$GLOBALMESSAGE" | grep -w "WARNING"|| true)

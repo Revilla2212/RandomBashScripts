@@ -65,7 +65,9 @@ while getopts "h:r:n:m:o:s:e:p:S:d:P:w:c:" OPTION; do
 done
 shift "$(($OPTIND -1))"
 
-COM=`/usr/bin/aws cloudwatch get-metric-statistics --region $_REGION --namespace $_NAMESPACE --metric-name $_METRIC --output text --start-time $(date -Iseconds --date="$_START days ago") --end-time $(date -Iseconds --date="$_END days ago") --period $_PERIOD --statistics $_STATISTICS --dimensions $_DIMENSIONS  --profile $_PROFILE`
+_OUTPUT=text
+
+COM=`sh -c "/usr/bin/aws cloudwatch get-metric-statistics --region "$_REGION" --namespace "$_NAMESPACE" --metric-name "$_METRIC" --output $_OUTPUT --start-time $(date -Iseconds --date="$_START days ago") --end-time $(date -Iseconds --date="$_END days ago") --period "$_PERIOD" --statistics "$_STATISTICS" --dimensions "$_DIMENSIONS"  --profile "$_PROFILE""`
 
 DATA=$(echo -e "$COM"|awk '$1 == "DATAPOINTS" {print $2}')
 
